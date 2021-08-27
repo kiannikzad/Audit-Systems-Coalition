@@ -21,43 +21,39 @@ function operation_map(operation) {
         case 'dne':
             op = 'Does not exist'
             break
+        case '~':
+            op = 'not'
+            break
         default:
             op = null //set op to null if non-valid operation
     }
     return op
 }
 
-function parseConstructor (init) {
+const queryParse = (req, res, next) => {
+    let filter = req.query;
+    let {feature} = req.params; 
+    let {include} = req.params;
+    include = include.split('&');
 
-    return (req, res, next) => {
-        let filter = req.query;
-        let {feature} = req.params; 
-        let include;
-        // if we're doing a key query then include is just null
-        if (init == 'key') {
-            include = []
-        }
-        else {
-            include = req.params.include;
-            include = include.split('&');
-        }
-        // init parsed values
-        res.locals.parsed = {};
+    // init parsed values
+    res.locals.parsed = {};
     
 
-        // Validate column IDs are numeric
-        for(let id of include) {
-            if(isNaN(parseInt(id))) {
-                return res.status(400).send(`Bad Request 1601: ${id} must be numeric`);
-            }
+    // Validate column IDs are numeric
+    for(let id of include) {
+        if(isNaN(parseInt(id))) {
+            return res.status(400).send(`Bad Request 1601: ${id} must be numeric`);
         }
+    }
 
     // console.log('feature = ', feature);
     // console.log('includes = ', include);
     // console.log('filters = ', filter);
     
     // Construct object of parsed filters
-    let filters = {};
+    console.log({include})
+    let filters = [];
     let universalFilters = {};
     for (const key in filter) {
 
@@ -67,47 +63,107 @@ function parseConstructor (init) {
             continue
         }
 
-            // Validate filter IDs are numeric
-            if(isNaN(parseInt(key))) {
-                return res.status(400).send(`Bad Request 1602: filters must be numeric IDs or universals`);
+        // Validate filter IDs are numeric
+        if(isNaN(parseInt(key))) {
+            return res.status(400).send(`Bad Request 1602: filters must be numeric IDs or universals`);
+        }
+        
+        //setting up custom operators
+        if (typeof(filter[key]) === 'object') {
+
+            let operationKeys = Object.keys(filter[key]) 
+            let operationValues = Object.values(filter[key]) 
+            let hasORs = [];
+            console.log(filter[key])
+            console.log(operationKeys)
+            console.log(operationValues)
+            
+            let tempOperationValues = [];
+            let tempOperationKeys = [];
+
+            for (elem in operationValues){
+                for (val in operationValues[elem]){
+                    let statement = operationValues[elem][val]
+                    let indexOrs = []
+                    for (var i = 0; i < statement.length; i++){
+                        if (statement[i] === '|'){
+                            if (indexOrs.length === 0){
+                                tempOperationKeys.push(operationKeys[elem])
+                                tempOperationValues.push(statement.substr(0, i))
+                            }else{
+                                tempStatement = statement.substr(indexOrs[indexOrs.length - 1] + 1, i - (indexOrs[indexOrs.length - 1] + 1))
+                                let opStart = tempStatement.indexOf('[')
+                                let opEnd = tempStatement.indexOf(']')
+                                let opEqual = tempStatement.indexOf('=')
+ 
+                                tempOperationKeys.push(tempStatement.substring(opStart+1,opEnd));
+                                tempOperationValues.push(tempStatement.substr(opEqual+1))
+                            }
+                            indexOrs.push(i);
+                        }
+                    }
+                    tempStatement = statement.substr(indexOrs[indexOrs.length - 1] + 1)
+                    let opStart = tempStatement.indexOf('[')
+                    let opEnd = tempStatement.indexOf(']')
+                    let opEqual = tempStatement.indexOf('=')
+                    hasORs.push(true);
+                    hasORs.push(true);
+                    tempOperationKeys.push(tempStatement.substring(opStart+1,opEnd));
+                    tempOperationValues.push(tempStatement.substr(opEqual+1))
+                }
             }
+            
+            operationValues = tempOperationValues
+            operationKeys = tempOperationKeys
+            console.log(operationKeys)
+            console.log(operationValues)
 
-            // setting up custom operator
-            // req.query parses 42[example]=something as 42: {example: 'something'}
-            if (typeof(filter[key]) === 'object') {
+            let filteredQueries = []
+            
+            for (let i = 0; i < operationKeys.length; i++){
+                
+                let operation = operation_map(operationKeys[i])
+                let value = operationValues[i]
 
-                // Only getting the first operation! Multiple operations is not set up
-                // ex: 42: {lte: 5, gte: 2} only makes the lte filter now
-                // @Yash pls fix
-                let operationKey = Object.keys(filter[key])[0]
+                let ORQueries = []
 
-                // get value
-                let value = filter[key][operationKey]
-                // get operation name
-                let operation = operation_map(operationKey)
                 // if not a valid operation
                 if(operation === null) {
-                    return res.status(400).send(`Bad Request 1603: ${operationKey} is not a valid operator`)
+                    return res.status(400).send(`Bad Request 1603: ${operationKeys[i]} is not a valid operator`)
                 } 
-                // otherwise add as a filter
-                else {
-                    filters[key] = {
-                        operation,
-                        value
+                //define OR operator object
+                else if (hasORs[i]){
+                    ORQueries.push({key,operation,value})
+                    let j = i + 1
+                    while (hasORs[j]){
+                        operation = operation_map(operationKeys[j])
+                        value = operationValues[j]
+                        ORQueries.push({key,operation,value})
+                        j++
                     }
+                    
+                    filteredQueries.push(ORQueries);
+                    filters.push(filteredQueries[i])
                 }
-            } else { // if no operator is given use = operator
+                // otherwise add as a filter
+                else if (!hasORs[i]){
+                    filteredQueries = [
+                        {key,operation,value}
+                    ]
+                    filters.push(filteredQueries)
+                }
 
-                // @Yash OR stuff probably needs to go here too
-
-                let value = filter[key]
-
-                filters[key] = {
-                    operation: '=', 
-                    value
-                } 
-            }  
+            }
+        } else { // if no operator is given use = operator
+            let operation = operation_map(content[0])
+            let value = filter[key]
+            filteredQueries = [
+                {key,operation,value}
+            ]
         }
+    }
+
+    console.log(filters)
 
     // attaching parsed object
     res.locals.parsed.request = "audit";
@@ -116,8 +172,7 @@ function parseConstructor (init) {
     res.locals.parsed.filters = filters
     res.locals.parsed.universalFilters = universalFilters;
     next(); // passing to validate.js 
-    }
-}
+};
 
 ////// END OF QUERY PARSING //////
 
@@ -183,8 +238,7 @@ function apiDateToUTC(date) {
 
 module.exports = {
     statsParse,
-    keyQueryParse: parseConstructor('key'),
-    queryParse: parseConstructor('other'),
+    queryParse,
     uploadParse,
     templateParse,
     setupParse,

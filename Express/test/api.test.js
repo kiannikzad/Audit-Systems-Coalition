@@ -41,8 +41,12 @@ let o8 = observationBase + '66&65&73&70&292&293?65[gte]=01-20-2000&65[lte]=01-20
 let o9 = observationBase + '66&65&73&70&292&293?65[gte]=01-20-2000&65[lte]=01-20-2020&limit=0&offset=10&sorta=70';
 let o10 = observationBase + '66&65&73&70&292&293?65[gte]=01-20-2000&65[lte]=01-20-2020&limit=50&offset=-10&sorta=70';
 let o11 = observationBase + '66&65&73&70&292&293?65[gte]=01-20-2000&65[lte]=01-20-2020&limit=50&offset=10&sorta=abc'
+<<<<<<< Updated upstream
 
 let o12 = observationBase + '66&65&73&70&292&293?65[gte]=01-20-2000&65[lte]=01-20-2020&limit=50&offset=abc&sorta=70';
+=======
+let o12 = observationBase + '70&81?70[lte]=1.03|70[gte]=7|70[gte]=6&70[lte]=1|70[~]=5'
+>>>>>>> Stashed changes
 
 let o13 = '/api/audit/item/key/user?limit=10&offset=1&sorta=264'
 let o14 = '/api/audit/observation/key/sink?limit=10&offset=1&sorta=66'
@@ -223,15 +227,14 @@ test('Test for valid number for filter', function (done) {
         });
 });
 
-test('Offset with string', done => {
+test('Test OR operator during filter', function (done) {
     request
         .get(o12)
-        .end( (err, res) => {
-            if (err) return done(err);
-            checkResponse(res, 400);
-            expect(res.text).toBe('Bad Request 2209: Field for offset must be zero or a positive integer');
-            done();
-        });
+        .end((err, res) => {
+            if(err) return done(err)
+            expect(res.body).toEqual({})
+            done()
+        })
 });
 
 test('Test for item/key query', done => {
@@ -279,4 +282,3 @@ function checkResponse(res, status) {
     }
     return true;
 }
-
